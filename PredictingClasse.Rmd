@@ -1,0 +1,88 @@
+Predicting Class of exercise
+========================================================
+
+```{r setoptions, echo=TRUE}
+library(knitr)
+library(caret)
+opts_chunk$set(echo = TRUE, results = "show", cache = TRUE, fig.height=5)
+```
+
+### Loading the training data and pre-processing
+```{r}
+#Read train data
+training <- read.csv("pml-training.csv",header=T, na.strings=c("NA",""))
+
+#Keep only rows with new window=no
+training <- training[training$new_window=="no",]
+
+#remove NA columns
+NAcol <- apply(training,2,function(x) {sum(is.na(x))}) 
+newtrain <- training[,which(NAcol == 0)]
+```
+
+### Partitioning the data
+We will use the caret package to partition the train data into further training data and testing data. The ratio chosen is 60% training and 40% testing. 
+
+```{r}
+intrain <- createDataPartition(newtrain$classe, p=0.6, list=FALSE)
+finaltrain <- newtrain[intrain,]
+
+#Remove non-useful columns
+useless <- grep("timestamp|user_name|X|window", names(finaltrain))
+finaltrain <- finaltrain[,-useless]
+```
+
+### Analysis
+As we can see, the final training data set contains 11532 observations with 53 variables. The last variable classe is the one we want to predict. The `classe` variable is a 5-level factor variable.
+```{r}
+dim(finaltrain)
+levels(finaltrain$classe)
+```
+
+We will not do any pre-processing like principal component analysis because the number of predictors are not a constraining factor. 52 predictors is manageable.
+
+Choice of training models:
+1. Linear regression  
+2. GLM  
+3. Rpart  
+4. Random Forest
+
+The first 3 choices give poor accuracy in this case of a large number of predictors. Also, since our outcome variable, `classe`, is a 5-factor variable, GLM doesn't work as it needs a two-factor outcome.
+
+So we will use the Radom Forest method to train our data. We shall also use **k-fold cross validation** to further break out training data to 4 folds. This will ensure a robust final model.
+
+### Training
+The train function in the caret package provides a one line functionality to both build the model and also do k-fold cross validation. The cross-validation argument can be passed to the `trainControl` argument of the `train` function.
+```{r}
+set.seed(1235)
+rffit <- train(finaltrain$classe~., data=finaltrain, method="rf", trControl=trainControl(method="cv", number=4, allowParallel=T))
+```
+
+This is our final model. Let's look at some of the parameters of the model
+```{r}
+rffit$finalModel
+```
+
+
+### Predicting
+We shall use the model `rffit` from our training data and apply it to the 40% testing data that we had set aside initially. 
+```{r}
+#Building the test data set
+testing <- newtrain[-intrain,-useless] 
+
+# Applying the predict function
+pred1 <- predict(rffit, testing)
+
+# Calculating accuracy
+confusionMatrix(pred1,testing$classe)
+```
+
+### Out of sample error
+The out of sample error is calculated on the testing dataset.
+```{r}
+accu1 <- sum(pred1==testing$classe)/length(pred1)
+(1-accu1)*100
+```
+So the out of sample error rate is `r (1-accu1)*100`%
+
+
